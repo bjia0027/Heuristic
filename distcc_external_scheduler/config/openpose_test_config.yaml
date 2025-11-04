@@ -1,0 +1,41 @@
+scheduler:
+  algorithm: round_robin
+  enable_heartbeat: true
+  heartbeat_port: 9999
+  heartbeat_interval: 2.0
+  heartbeat_timeout: 10.0
+  task_timeout: 300.0
+  max_retries: 3
+  node_failure_threshold: 3
+  stats_interval: 60.0
+  enable_local_fallback: true
+
+compilation:
+  distcc_executable: "distcc"
+  default_compiler: "g++"
+  enable_local_fallback: true
+
+servers:
+  - node_id: node-high-1
+    hostname: localhost
+    port: 8001
+    max_slots: 8
+    connection_mode: tcp
+    priority: 1
+    tags: ["high-performance"]
+    
+  - node_id: node-med-1
+    hostname: localhost
+    port: 8003
+    max_slots: 4
+    connection_mode: tcp
+    priority: 2
+    tags: ["medium-performance"]
+    
+  - node_id: node-low-1
+    hostname: localhost
+    port: 8006
+    max_slots: 2
+    connection_mode: tcp
+    priority: 3
+    tags: ["low-performance"]

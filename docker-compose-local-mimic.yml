@@ -1,0 +1,97 @@
+version: '3.8'
+
+# 本地资源等效的 4 节点 distcc 集群（总计 8 vCPU）
+# - 每个节点固定 2 vCPU，限制内存，端口映射到本机 3641-3644
+# - 便于与“本地 8 线程”编译做公平对比
+
+services:
+  node-a:
+    image: distcc_node:latest
+    container_name: distcc_node_local_a
+    hostname: node-a
+    ports:
+      - "3641:3632"
+      - "8041:8080"
+    environment:
+      - NODE_ID=local-a
+      - NODE_TYPE=local-mimic
+      - CPU_CORES=2
+      - DISTCC_SLOTS=2
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
+    cpus: 2.0
+    mem_limit: 4g
+    # 将本节点绑定到 CPU 0-1，减少与其它容器的竞争
+    cpuset: "0-1"
+    restart: unless-stopped
+
+  node-b:
+    image: distcc_node:latest
+    container_name: distcc_node_local_b
+    hostname: node-b
+    ports:
+      - "3642:3632"
+      - "8042:8080"
+    environment:
+      - NODE_ID=local-b
+      - NODE_TYPE=local-mimic
+      - CPU_CORES=2
+      - DISTCC_SLOTS=2
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
+    cpus: 2.0
+    mem_limit: 4g
+    cpuset: "2-3"
+    restart: unless-stopped
+
+  node-c:
+    image: distcc_node:latest
+    container_name: distcc_node_local_c
+    hostname: node-c
+    ports:
+      - "3643:3632"
+      - "8043:8080"
+    environment:
+      - NODE_ID=local-c
+      - NODE_TYPE=local-mimic
+      - CPU_CORES=2
+      - DISTCC_SLOTS=2
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
+    cpus: 2.0
+    mem_limit: 4g
+    cpuset: "4-5"
+    restart: unless-stopped
+
+  node-d:
+    image: distcc_node:latest
+    container_name: distcc_node_local_d
+    hostname: node-d
+    ports:
+      - "3644:3632"
+      - "8044:8080"
+    environment:
+      - NODE_ID=local-d
+      - NODE_TYPE=local-mimic
+      - CPU_CORES=2
+      - DISTCC_SLOTS=2
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3g
+    cpus: 2.0
+    mem_limit: 3g
+    cpuset: "6-7"
+    restart: unless-stopped
+
+# 无需自定义网络，使用默认 bridge 即可（端口已映射到本机）

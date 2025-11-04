@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/">
+    <file name=":/icons/app.png">icons/app.png</file>
+    <file name=":/texts/readme.txt">texts/readme.txt</file>
+  </qresource>
+</RCC>

@@ -1,0 +1,75 @@
+FROM ubuntu:24.04
+
+# 避免 tzdata 在构建时交互式提问时区
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+
+# 安装必要软件（先安装 tzdata，避免交互式选择时区导致卡住）并与宿主(24.04)对齐工具链/头文件
+RUN apt-get update && \
+        apt-get install -y --no-install-recommends tzdata && \
+        ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
+    apt-get install -y --no-install-recommends \
+            gcc g++ make cmake ninja-build pkg-config \
+            distcc \
+            python3 python3-pip \
+            htop stress-ng \
+            curl wget \
+            software-properties-common gnupg dirmngr \
+            build-essential \
+            libssl-dev \
+            # Dev dependencies for OpenPose typical modules
+            libopencv-dev libgtk-3-dev libeigen3-dev \
+            ocl-icd-opencl-dev opencl-headers \
+            libprotobuf-dev protobuf-compiler \
+            libgflags-dev libgoogle-glog-dev \
+            libboost-all-dev \
+            python3-dev pybind11-dev \
+            python3-numpy \
+            libv4l-dev libgphoto2-dev libusb-1.0-0-dev libdc1394-dev \
+            # Graphics & GUI stack
+            libgl1-mesa-dev libglu1-mesa-dev freeglut3-dev \
+            libglfw3-dev libglew-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxi-dev \
+            # FFmpeg (video I/O)
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavfilter-dev \
+            # 3D/Optimization
+            libceres-dev libsuitesparse-dev libopenblas-dev \
+            # Sensors
+            libopenni2-dev \
+        && rm -rf /var/lib/apt/lists/*
+
+# 兼容某些项目直接包含 <opencv2/...> 但未添加 -I/usr/include/opencv4 的情况
+RUN if [ -d /usr/include/opencv4/opencv2 ] && [ ! -e /usr/include/opencv2 ]; then \
+      ln -s /usr/include/opencv4/opencv2 /usr/include/opencv2; \
+    fi
+
+    # 安装Python依赖（Ubuntu 24.04 默认启用 PEP 668，避免使用系统 pip 破坏环境）
+    RUN apt-get update && \
+        apt-get install -y --no-install-recommends \
+            python3-psutil \
+            python3-requests \
+            python3-flask && \
+        rm -rf /var/lib/apt/lists/*
+
+# 记录工具链版本
+RUN gcc --version && g++ --version && lsb_release -a || true
+
+# 创建工作目录
+WORKDIR /app
+
+# 复制节点脚本
+COPY scripts/ /app/scripts/
+RUN chmod +x /app/scripts/*.py /app/scripts/*.sh
+
+# 创建distcc配置
+RUN mkdir -p /etc/distcc
+
+# 设置环境变量
+ENV DISTCC_HOSTS="localhost"
+ENV DISTCC_JOBS="4"
+
+# 暴露端口
+EXPOSE 3632 8080
+
+# 启动脚本
+CMD ["python3", "/app/scripts/distcc_node.py"]

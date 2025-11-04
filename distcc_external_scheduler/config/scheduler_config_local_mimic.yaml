@@ -1,0 +1,56 @@
+scheduler:
+  name: "distcc_local_mimic_4nodes"
+  listen_host: "0.0.0.0"
+  listen_port: 8080
+  default_algorithm: "round_robin"
+  max_concurrent_tasks: 12
+  task_timeout: 300
+  log_level: "INFO"
+  log_file: "logs/scheduler_local_mimic.log"
+  enable_performance_logging: true
+  enable_auto_makefile: true
+  force_regenerate_makefile: false
+  backup_existing_makefile: true
+
+compilation:
+  distcc_executable: "distcc"
+  default_compiler: "gcc"
+  enable_local_fallback: true
+
+servers:
+  - node_id: "docker-local-a"
+    hostname: "127.0.0.1"
+    port: 3641
+    max_slots: 2
+    performance_weight: 1.0
+    connection_mode: "tcp"
+  - node_id: "docker-local-b"
+    hostname: "127.0.0.1"
+    port: 3642
+    max_slots: 2
+    performance_weight: 1.0
+    connection_mode: "tcp"
+  - node_id: "docker-local-c"
+    hostname: "127.0.0.1"
+    port: 3643
+    max_slots: 2
+    performance_weight: 1.0
+    connection_mode: "tcp"
+  - node_id: "docker-local-d"
+    hostname: "127.0.0.1"
+    port: 3644
+    max_slots: 2
+    performance_weight: 1.0
+    connection_mode: "tcp"
+
+recording:
+  enable_csv_output: true
+  csv_file: "logs/local_mimic_task_timeline.csv"
+  enable_detailed_timing: true
+  record_scheduling_decisions: true
+
+monitoring:
+  enable_node_monitoring: true
+  collect_performance_metrics: true
+  metric_collection_interval: 5.0
+  enable_real_time_dashboard: false

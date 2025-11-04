@@ -1,0 +1,5 @@
+# Demo config for codegen_chain_demo
+FEATURE_X=1
+FEATURE_Y=0
+MAX_ITEMS=128
+TIMEOUT_MS=250

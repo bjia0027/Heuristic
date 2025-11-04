@@ -1,0 +1,212 @@
+version: '3.8'
+
+# 10节点高性能分布式编译集群
+# 专门为测试调度算法的真正并发能力而设计
+
+services:
+  # 调度器服务
+  scheduler:
+    image: distcc_scheduler:latest
+    container_name: distcc_scheduler_10node
+    hostname: scheduler
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.10
+    ports:
+      - "9999:9999"  # 心跳服务端口
+      - "9080:8080"  # 调度器API端口
+    environment:
+      - SCHEDULER_CONFIG=/app/config/scheduler_config_10nodes.yaml
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./test_projects:/app/test_project
+      - ./distcc_external_scheduler/config:/app/config
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # 高性能节点组 (4个8核节点)
+  node-high-1:
+    image: distcc_node:latest
+    container_name: distcc_node_high_1_10
+    hostname: high-node-1
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.11
+    ports:
+      - "3641:3632"
+      - "8011:8080"
+    environment:
+      - NODE_ID=high-1
+      - NODE_TYPE=high-performance
+      - CPU_CORES=8
+      - DISTCC_SLOTS=8
+    restart: unless-stopped
+
+  node-high-2:
+    image: distcc_node:latest
+    container_name: distcc_node_high_2_10
+    hostname: high-node-2
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.12
+    ports:
+      - "3642:3632"
+      - "8012:8080"
+    environment:
+      - NODE_ID=high-2
+      - NODE_TYPE=high-performance
+      - CPU_CORES=8
+      - DISTCC_SLOTS=8
+    restart: unless-stopped
+
+  node-high-3:
+    image: distcc_node:latest
+    container_name: distcc_node_high_3_10
+    hostname: high-node-3
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.13
+    ports:
+      - "3643:3632"
+      - "8013:8080"
+    environment:
+      - NODE_ID=high-3
+      - NODE_TYPE=high-performance
+      - CPU_CORES=8
+      - DISTCC_SLOTS=8
+    restart: unless-stopped
+
+  node-high-4:
+    image: distcc_node:latest
+    container_name: distcc_node_high_4_10
+    hostname: high-node-4
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.14
+    ports:
+      - "3644:3632"
+      - "8014:8080"
+    environment:
+      - NODE_ID=high-4
+      - NODE_TYPE=high-performance
+      - CPU_CORES=8
+      - DISTCC_SLOTS=8
+    restart: unless-stopped
+
+  # 中等性能节点组 (4个4核节点)
+  node-medium-1:
+    image: distcc_node:latest
+    container_name: distcc_node_medium_1_10
+    hostname: medium-node-1
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.15
+    ports:
+      - "3645:3632"
+      - "8015:8080"
+    environment:
+      - NODE_ID=medium-1
+      - NODE_TYPE=medium-performance
+      - CPU_CORES=4
+      - DISTCC_SLOTS=4
+    restart: unless-stopped
+
+  node-medium-2:
+    image: distcc_node:latest
+    container_name: distcc_node_medium_2_10
+    hostname: medium-node-2
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.16
+    ports:
+      - "3646:3632"
+      - "8016:8080"
+    environment:
+      - NODE_ID=medium-2
+      - NODE_TYPE=medium-performance
+      - CPU_CORES=4
+      - DISTCC_SLOTS=4
+    restart: unless-stopped
+
+  node-medium-3:
+    image: distcc_node:latest
+    container_name: distcc_node_medium_3_10
+    hostname: medium-node-3
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.17
+    ports:
+      - "3647:3632"
+      - "8017:8080"
+    environment:
+      - NODE_ID=medium-3
+      - NODE_TYPE=medium-performance
+      - CPU_CORES=4
+      - DISTCC_SLOTS=4
+    restart: unless-stopped
+
+  node-medium-4:
+    image: distcc_node:latest
+    container_name: distcc_node_medium_4_10
+    hostname: medium-node-4
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.18
+    ports:
+      - "3648:3632"
+      - "8018:8080"
+    environment:
+      - NODE_ID=medium-4
+      - NODE_TYPE=medium-performance
+      - CPU_CORES=4
+      - DISTCC_SLOTS=4
+    restart: unless-stopped
+
+  # 低性能节点组 (2个2核节点)
+  node-low-1:
+    image: distcc_node:latest
+    container_name: distcc_node_low_1_10
+    hostname: low-node-1
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.19
+    ports:
+      - "3649:3632"
+      - "8019:8080"
+    environment:
+      - NODE_ID=low-1
+      - NODE_TYPE=low-performance
+      - CPU_CORES=2
+      - DISTCC_SLOTS=2
+    restart: unless-stopped
+
+  node-low-2:
+    image: distcc_node:latest
+    container_name: distcc_node_low_2_10
+    hostname: low-node-2
+    networks:
+      distcc_network:
+        ipv4_address: 172.30.0.20
+    ports:
+      - "3650:3632"
+      - "8020:8080"
+    environment:
+      - NODE_ID=low-2
+      - NODE_TYPE=low-performance
+      - CPU_CORES=2
+      - DISTCC_SLOTS=2
+    restart: unless-stopped
+
+networks:
+  distcc_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+          gateway: 172.30.0.1
+
+volumes:
+  test_data:
+    driver: local
+  test_logs:
+    driver: local

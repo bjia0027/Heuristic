@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and databases
+*.log
+*.db
+*.sqlite3
+scheduler.log
+scheduler.pid
+
+# Generated files
+*.csv
+*.json
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+data/scheduler_results.db
+logs/
+test_results/
+real_test_results/
+docker_test_results/
+test_results_archive/
+results/
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.d
+main
+test_*
+!test_projects/

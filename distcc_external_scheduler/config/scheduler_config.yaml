@@ -1,0 +1,96 @@
+# Distcc外部调度器配置文件
+
+# 基本配置
+scheduler:
+  name: "distcc-external-scheduler"
+  log_level: "INFO"
+  max_concurrent_tasks: 50
+  default_algorithm: "least_loaded"
+  enable_performance_logging: true
+
+# 服务器节点配置
+servers:
+  - id: "distcc1a"
+    hostname: "localhost"
+    port: 3633
+    max_slots: 1
+    connection_mode: "tcp"
+  
+  - id: "distcc1b"
+    hostname: "localhost"
+    port: 3634
+    max_slots: 1
+    connection_mode: "tcp"
+  
+  - id: "distcc2a"
+    hostname: "localhost"
+    port: 3635
+    max_slots: 4
+    connection_mode: "tcp"
+  
+  - id: "distcc2b"
+    hostname: "localhost"
+    port: 3636
+    max_slots: 4
+    connection_mode: "tcp"
+  
+  - id: "distcc3a"
+    hostname: "localhost"
+    port: 3637
+    max_slots: 8
+    connection_mode: "tcp"
+  
+  - id: "distcc3b"
+    hostname: "localhost"
+    port: 3638
+    max_slots: 8
+    connection_mode: "tcp"
+
+# 编译配置
+compilation:
+  distcc_executable: "distcc"
+  default_compiler: "gcc"
+  enable_local_fallback: true
+  default_timeout: 300  # 5分钟默认超时
+
+# 资源监控配置
+monitoring:
+  monitor_interval: 30  # 30秒监控间隔
+  heartbeat_timeout: 60  # 60秒心跳超时
+  enable_detailed_monitoring: true
+
+# 自动Makefile生成配置
+enable_auto_makefile: true
+force_regenerate_makefile: false
+backup_existing_makefile: true
+makefile_config:
+  default_compiler: "gcc"
+  default_flags: ["-Wall", "-Wextra"]
+  cpp_compiler: "g++"
+  cpp_flags: ["-Wall", "-Wextra", "-std=c++14"]
+  enable_debug: true
+  enable_optimization: false
+
+# 结果记录配置
+result_recording:
+  db_path: "data/scheduler_results.db"
+  enable_csv: true
+  enable_json: true
+  enable_performance_logging: true
+  cleanup_old_data_days: 30
+
+# 诊断和监控配置
+diagnostics:
+  enable_cyclic_dependency_detection: true
+  enable_deadlock_diagnosis: true
+  enable_long_pending_detection: true
+  status_log_interval: 30  # 30秒状态日志间隔
+  long_pending_threshold_minutes: 5
+  long_running_threshold_minutes: 10
+
+# 任务超时和取消配置
+task_management:
+  default_task_timeout: 300  # 5分钟
+  enable_task_cancellation: true
+  graceful_shutdown_timeout: 30  # 30秒优雅关闭超时
+  force_shutdown_timeout: 60  # 60秒强制关闭超时 

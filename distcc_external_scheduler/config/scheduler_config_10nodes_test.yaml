@@ -1,0 +1,145 @@
+# 测试配置：启用本地回退的10节点配置
+# 用于测试编译跟踪功能
+
+scheduler:
+  name: "distcc_external_scheduler_10nodes_test"
+  listen_host: "0.0.0.0"
+  listen_port: 8080
+  
+  # 调度策略 - 提高并发能力
+  default_algorithm: "round_robin"
+  max_concurrent_tasks: 50  # 增加到50个并发任务
+  task_timeout: 300
+  
+  # 资源监控
+  monitor_interval: 2.0      # 更频繁的监控
+  heartbeat_timeout: 10.0    # 缩短心跳超时
+  
+  # 日志配置
+  log_level: "INFO"
+  log_file: "logs/scheduler_10nodes.log"
+  enable_performance_logging: true
+  
+  # 自动Makefile生成配置
+  enable_auto_makefile: true
+  force_regenerate_makefile: false
+  backup_existing_makefile: true
+
+compilation:
+  distcc_executable: "distcc"
+  default_compiler: "gcc"
+  enable_local_fallback: true  # 启用本地回退以测试跟踪功能
+
+# 10个Docker容器节点配置
+servers:
+  # 高性能节点组 (4×8核 = 32 slots)
+  - node_id: "docker-high-1"
+    hostname: "172.20.0.11"
+    port: 3632
+    max_slots: 8
+    connection_mode: "tcp"
+    tags: ["high-performance", "docker", "8-core"]
+    priority: 1
+
+  - node_id: "docker-high-2"
+    hostname: "172.20.0.12"
+    port: 3632
+    max_slots: 8
+    connection_mode: "tcp"
+    tags: ["high-performance", "docker", "8-core"]
+    priority: 1
+
+  - node_id: "docker-high-3"
+    hostname: "172.20.0.13"
+    port: 3632
+    max_slots: 8
+    connection_mode: "tcp"
+    tags: ["high-performance", "docker", "8-core"]
+    priority: 1
+
+  - node_id: "docker-high-4"
+    hostname: "172.20.0.14"
+    port: 3632
+    max_slots: 8
+    connection_mode: "tcp"
+    tags: ["high-performance", "docker", "8-core"]
+    priority: 1
+
+  # 中等性能节点组 (4×4核 = 16 slots)
+  - node_id: "docker-medium-1"
+    hostname: "172.20.0.15"
+    port: 3632
+    max_slots: 4
+    connection_mode: "tcp"
+    tags: ["medium-performance", "docker", "4-core"]
+    priority: 2
+
+  - node_id: "docker-medium-2"
+    hostname: "172.20.0.16"
+    port: 3632
+    max_slots: 4
+    connection_mode: "tcp"
+    tags: ["medium-performance", "docker", "4-core"]
+    priority: 2
+
+  - node_id: "docker-medium-3"
+    hostname: "172.20.0.17"
+    port: 3632
+    max_slots: 4
+    connection_mode: "tcp"
+    tags: ["medium-performance", "docker", "4-core"]
+    priority: 2
+
+  - node_id: "docker-medium-4"
+    hostname: "172.20.0.18"
+    port: 3632
+    max_slots: 4
+    connection_mode: "tcp"
+    tags: ["medium-performance", "docker", "4-core"]
+    priority: 2
+
+  # 低性能节点组 (2×2核 = 4 slots)
+  - node_id: "docker-low-1"
+    hostname: "172.20.0.19"
+    port: 3632
+    max_slots: 2
+    connection_mode: "tcp"
+    tags: ["low-performance", "docker", "2-core"]
+    priority: 3
+
+  - node_id: "docker-low-2"
+    hostname: "172.20.0.20"
+    port: 3632
+    max_slots: 2
+    connection_mode: "tcp"
+    tags: ["low-performance", "docker", "2-core"]
+    priority: 3
+
+# 数据记录配置
+recording:
+  enable_csv_output: true
+  csv_file: "logs/10nodes_task_timeline.csv"
+  enable_detailed_timing: true
+  record_scheduling_decisions: true
+
+# 性能优化设置
+performance:
+  connection_pool_size: 20        # 增加连接池
+  max_retries: 3
+  retry_delay: 1.0
+  enable_compression: true
+  tcp_nodelay: true
+  
+# 负载均衡配置
+load_balancing:
+  enable_dynamic_adjustment: true
+  performance_weight: 0.7         # 性能权重
+  load_weight: 0.3               # 负载权重
+  min_task_interval: 10          # 最小任务间隔(ms)
+
+# 监控和统计
+monitoring:
+  enable_node_monitoring: true
+  collect_performance_metrics: true
+  metric_collection_interval: 5.0
+  enable_real_time_dashboard: false

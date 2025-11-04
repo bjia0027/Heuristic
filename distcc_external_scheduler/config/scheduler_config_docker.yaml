@@ -1,0 +1,71 @@
+# Docker集群调度器配置
+# 使用Docker容器作为分布式编译节点
+
+scheduler:
+  name: "distcc_external_scheduler_docker"
+  listen_host: "0.0.0.0"
+  listen_port: 8080
+  
+  # 调度策略
+  default_algorithm: "dag_heuristic"
+  max_concurrent_tasks: 20
+  task_timeout: 300
+  
+  # 资源监控
+  monitor_interval: 5.0
+  heartbeat_timeout: 15.0
+  
+  # 日志配置
+  log_level: "INFO"
+  log_file: "logs/scheduler_docker.log"
+  enable_performance_logging: true
+  
+  # 自动Makefile生成配置
+  enable_auto_makefile: true
+  force_regenerate_makefile: false
+  backup_existing_makefile: true
+
+compilation:
+  distcc_executable: "distcc"
+  default_compiler: "gcc"
+  enable_local_fallback: true
+
+# Docker容器节点配置
+servers:
+  - node_id: "docker-high-1"
+    hostname: "172.20.0.4"
+    port: 3632
+    max_slots: 8
+    connection_mode: "tcp"
+    tags: ["high-performance", "docker"]
+    priority: 1
+
+  - node_id: "docker-medium-1" 
+    hostname: "172.20.0.3"
+    port: 3632
+    max_slots: 4
+    connection_mode: "tcp"
+    tags: ["medium-performance", "docker"]
+    priority: 2
+
+  - node_id: "docker-low-1"
+    hostname: "172.20.0.2"
+    port: 3632
+    max_slots: 2
+    connection_mode: "tcp"
+    tags: ["low-performance", "docker"]
+    priority: 3
+
+# 数据记录配置
+recording:
+  db_path: "data/scheduler_results_docker.db"
+  enable_csv_export: true
+  enable_json_export: true
+  cleanup_old_data: true
+  retention_days: 30
+
+# 统计报告配置  
+reporting:
+  enable_realtime_stats: true
+  stats_update_interval: 10.0
+  export_interval: 300.0

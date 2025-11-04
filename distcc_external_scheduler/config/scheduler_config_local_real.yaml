@@ -1,0 +1,36 @@
+scheduler:
+  name: "distcc-local-real"
+  log_level: "INFO"
+  max_concurrent_tasks: 12
+  default_algorithm: "dag_heuristic"
+  enable_performance_logging: true
+
+compilation:
+  distcc_executable: "distcc"
+  default_compiler: "gcc"
+  enable_local_fallback: false
+  default_timeout: 600
+
+monitoring:
+  monitor_interval: 5
+  heartbeat_timeout: 15
+
+servers:
+  - id: "local-3633"
+    hostname: "127.0.0.1"
+    port: 3633
+    max_slots: 4
+    connection_mode: "tcp"
+  - id: "local-3634"
+    hostname: "127.0.0.1"
+    port: 3634
+    max_slots: 4
+    connection_mode: "tcp"
+  - id: "local-3635"
+    hostname: "127.0.0.1"
+    port: 3635
+    max_slots: 2
+    connection_mode: "tcp"
+
+enable_auto_makefile: false
+makefile_config: {}

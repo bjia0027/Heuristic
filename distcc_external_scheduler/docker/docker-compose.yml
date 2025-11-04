@@ -1,0 +1,309 @@
+# Docker集群测试环境
+# 10个不同负载状态的容器模拟真实分布式编译节点
+
+version: '3.8'
+
+services:
+  # 高性能节点 - 模拟服务器级别硬件
+  node-high-perf-1:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.high-perf
+    container_name: distcc_node_high_1
+    hostname: high-perf-1
+    networks:
+      - distcc_network
+    ports:
+      - "8001:8080"
+    environment:
+      - NODE_ID=high-perf-1
+      - NODE_TYPE=high-performance
+      - CPU_CORES=8
+      - MEMORY_GB=16
+    volumes:
+      - test-data:/app/test-data
+      - logs:/app/logs
+    restart: unless-stopped
+
+  node-high-perf-2:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.high-perf
+    container_name: distcc_node_high_2
+    hostname: high-perf-2
+    networks:
+      - distcc_network
+    ports:
+      - "8002:8080"
+    environment:
+      - NODE_ID=high-perf-2
+      - NODE_TYPE=high-performance
+      - CPU_CORES=8
+      - MEMORY_GB=16
+    volumes:
+      - test-data:/app/test-data
+      - logs:/app/logs
+    restart: unless-stopped
+
+  # 中等性能节点 - 模拟普通工作站
+  node-medium-1:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.medium
+    container_name: distcc_node_medium_1
+    hostname: medium-1
+    networks:
+      - distcc_network
+    ports:
+      
+      - "8003:8080"
+    environment:
+      - NODE_ID=medium-1
+      - CPU_CORES=4
+      - MEMORY_GB=8
+      - LOAD_LEVEL=low
+      - COMPILE_SPEED=medium
+    volumes:
+      - ./test-data:/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  node-medium-2:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.medium
+    container_name: distcc_node_medium_2
+    hostname: medium-2
+    networks:
+      - distcc_network
+    ports:
+      
+      - "8004:8080"
+    environment:
+      - NODE_ID=medium-2
+      - CPU_CORES=4
+      - MEMORY_GB=8
+      - LOAD_LEVEL=high
+      - COMPILE_SPEED=medium
+    volumes:
+      - ./test-data:/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  node-medium-3:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.medium
+    container_name: distcc_node_medium_3
+    hostname: medium-3
+    networks:
+      - distcc_network
+    ports:
+      
+      - "8005:8080"
+    environment:
+      - NODE_ID=medium-3
+      - CPU_CORES=4
+      - MEMORY_GB=8
+      - LOAD_LEVEL=critical
+      - COMPILE_SPEED=medium
+    volumes:
+      - ./test-data:/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # 低性能节点 - 模拟老旧硬件
+  node-low-1:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.low-perf
+    container_name: distcc_node_low_1
+    hostname: low-1
+    networks:
+      - distcc_network
+    ports:
+      
+      - "8006:8080"
+    environment:
+      - NODE_ID=low-1
+      - CPU_CORES=2
+      - MEMORY_GB=4
+      - LOAD_LEVEL=medium
+      - COMPILE_SPEED=slow
+    volumes:
+      - ./test-data:/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  node-low-2:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.low-perf
+    container_name: distcc_node_low_2
+    hostname: low-2
+    networks:
+      - distcc_network
+    ports:
+      
+      - "8007:8080"
+    environment:
+      - NODE_ID=low-2
+      - CPU_CORES=2
+      - MEMORY_GB=4
+      - LOAD_LEVEL=high
+      - COMPILE_SPEED=slow
+    volumes:
+      - ./test-data:/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # 特殊负载节点
+  node-overloaded:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.overloaded
+    container_name: distcc_node_overloaded
+    hostname: overloaded
+    networks:
+      - distcc_network
+    ports:
+      
+      - "8008:8080"
+    environment:
+      - NODE_ID=overloaded
+      - CPU_CORES=4
+      - MEMORY_GB=8
+      - LOAD_LEVEL=critical
+      - COMPILE_SPEED=very-slow
+    volumes:
+      - ./test-data:/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'  # 故意限制资源模拟过载
+          memory: 256M
+
+  node-unstable:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.unstable
+    container_name: distcc_node_unstable
+    hostname: unstable
+    networks:
+      - distcc_network
+    ports:
+      
+      - "8009:8080"
+    environment:
+      - NODE_ID=unstable
+      - CPU_CORES=4
+      - MEMORY_GB=8
+      - LOAD_LEVEL=variable
+      - COMPILE_SPEED=variable
+    volumes:
+      - ./test-data:/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  node-edge-case:
+    build:
+      context: ./docker-nodes
+      dockerfile: Dockerfile.edge-case
+    container_name: distcc_node_edge
+    hostname: edge-case
+    networks:
+      - distcc_network
+    ports:
+      
+      - "8010:8080"
+    environment:
+      - NODE_ID=edge-case
+      - CPU_CORES=1
+      - MEMORY_GB=2
+      - LOAD_LEVEL=extreme
+      - COMPILE_SPEED=ultra-slow
+    volumes:
+      - ./test-data:/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'  # 极端资源限制
+          memory: 128M
+
+  # 调度器容器
+  scheduler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.scheduler
+    container_name: distcc_scheduler
+    hostname: scheduler
+    networks:
+      - distcc_network
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      - SCHEDULER_MODE=test
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./logs:/app/logs
+      - ./test-data:/app/test-data
+      - ./results:/app/results
+    depends_on:
+      - node-high-perf-1
+      - node-high-perf-2
+      - node-medium-1
+      - node-medium-2
+      - node-medium-3
+      - node-low-1
+      - node-low-2
+      - node-overloaded
+      - node-unstable
+      - node-edge-case
+
+  # 测试控制器
+  test-controller:
+    build:
+      context: .
+      dockerfile: docker-nodes/Dockerfile.test-controller
+    container_name: test_controller
+    hostname: test-controller
+    networks:
+      - distcc_network
+    environment:
+      - SCHEDULER_URL=http://scheduler:8080
+    volumes:
+      - ./test-scenarios:/app/scenarios
+      - ./results:/app/results
+    depends_on:
+      - scheduler
+
+networks:
+  distcc_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  test-data:
+  results:
+  logs:

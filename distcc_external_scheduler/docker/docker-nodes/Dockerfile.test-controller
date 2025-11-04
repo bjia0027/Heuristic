@@ -1,0 +1,22 @@
+# 测试控制器Dockerfile
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y \
+    curl wget \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install requests psutil matplotlib numpy pandas
+
+WORKDIR /app
+
+# 复制项目文件
+COPY test_scenarios/ /app/scenarios/
+COPY scripts/ /app/scripts/
+COPY core/ /app/core/
+
+# 将当前目录添加到Python路径
+ENV PYTHONPATH="/app"
+
+EXPOSE 8082
+
+CMD ["python", "scripts/cluster_test_runner.py"]

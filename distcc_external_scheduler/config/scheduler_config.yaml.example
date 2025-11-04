@@ -1,0 +1,127 @@
+# Distcc 外部调度器配置文件示例
+
+# 基本配置
+scheduler_name: "distcc_external_scheduler"
+listen_host: "0.0.0.0"
+listen_port: 8080
+
+# 调度策略配置
+default_algorithm: "least_loaded"  # 可选: round_robin, least_loaded, fastest_node, performance_based, random, locality_aware, adaptive, dag_heuristic
+max_concurrent_tasks: 50
+task_timeout: 300  # 秒
+
+# 资源监控配置
+monitor_interval: 10.0  # 秒
+heartbeat_timeout: 30.0  # 秒
+
+# Distcc配置
+distcc_executable: "distcc"
+default_compiler: "gcc"
+
+# 日志配置
+log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+log_file: "logs/scheduler.log"
+enable_performance_logging: true
+
+# 服务器节点配置
+servers:
+  # TCP连接的远程服务器
+  - id: "server1"
+    hostname: "192.168.1.10"
+    port: 3632
+    max_slots: 8
+    connection_mode: "tcp"
+  
+  - id: "server2"
+    hostname: "192.168.1.11"
+    port: 3632
+    max_slots: 4
+    connection_mode: "tcp"
+  
+  # SSH连接的远程服务器
+  - id: "server3"
+    hostname: "build-server-3"
+    port: 3632
+    max_slots: 6
+    connection_mode: "ssh"
+    ssh_user: "builder"
+  
+  # 高性能服务器
+  - id: "gpu-server"
+    hostname: "gpu-build.local"
+    port: 3632
+    max_slots: 16
+    connection_mode: "tcp"
+
+# 算法特定配置
+algorithm_configs:
+  performance_based:
+    load_weight: 0.4
+    speed_weight: 0.4
+    reliability_weight: 0.2
+  
+  locality_aware:
+    latency_threshold: 100.0  # 毫秒
+  
+  adaptive:
+    adaptation_window: 20
+
+  dag_heuristic:
+    enable_task_clustering: true
+    cluster_size_limit: 10
+    enable_batching: true
+    max_batch_size: 5
+    enable_multi_objective: true
+    enable_genetic_algorithm: false
+    genetic_population_size: 50
+    genetic_generations: 100
+    genetic_mutation_rate: 0.1
+    enable_dynamic_adjustment: true
+    adjustment_interval: 30  # 秒
+
+# 数据库配置
+database:
+  path: "data/scheduler_results.db"
+  enable_csv_export: true
+  enable_json_export: true
+  cleanup_days: 30
+
+# 性能优化配置
+performance:
+  enable_prediction: true
+  prediction_horizon: 300  # 秒
+  load_balancing_threshold: 0.8
+  
+# 安全配置
+security:
+  enable_authentication: false
+  api_key: ""
+  allowed_hosts: []
+
+# Web界面配置  
+web_ui:
+  enabled: true
+  port: 8081
+  static_files: "web/static"
+  
+# 通知配置
+notifications:
+  email:
+    enabled: false
+    smtp_server: "smtp.example.com"
+    smtp_port: 587
+    username: ""
+    password: ""
+    recipients: []
+  
+  webhook:
+    enabled: false
+    url: ""
+    events: ["node_down", "high_failure_rate"]
+
+# 调试配置
+debug:
+  enable_profiling: false
+  profiling_output: "profiles/"
+  enable_tracing: false
+  trace_output: "traces/" 

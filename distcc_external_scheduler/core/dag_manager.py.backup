@@ -1,0 +1,992 @@
+"""
+DAG依赖建模模块
+
+优化改进：
+1. 添加性能缓存机制
+2. 改进错误处理与日志
+3. 支持增量更新
+4. 优化内存使用
+
+v2 增强（DAG准确性优化）：
+5. 路径规范化：统一绝对路径内部处理
+6. 编译参数感知的缓存失效
+7. 完整依赖链建模（头文件 + 对象文件 + 生成文件）
+8. 智能循环消除：基于依赖类型优先级
+9. 详细诊断日志
+"""
+
+import os
+import re
+import networkx as nx
+import logging
+from typing import Dict, List, Set, Optional, Tuple
+from pathlib import Path
+from functools import lru_cache
+import hashlib
+from collections import defaultdict
+
+from .types import CompileTask, LinkTask
+from .makefile_generator import AutoMakefileManager, ProjectStructure
+
+
+class DAGManager:
+    """DAG依赖关系管理器
+    
+    主要功能：
+    - 自动构建编译任务依赖图
+    - 支持从项目结构/Makefile/compile_commands.json构建
+    - 提供拓扑排序、关键路径分析、并行度计算
+    - 支持循环依赖检测与修复
+    """
+    
+    def __init__(self, config: dict = None):
+        self.dependency_graph = nx.DiGraph()
+        self.file_to_task: Dict[str, str] = {}  # 文件路径到任务ID的映射
+        self.task_to_file: Dict[str, str] = {}  # 任务ID到文件路径的映射
+        self.include_paths: List[str] = []
+        self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # Makefile生成配置
+        self.config = config or {}
+        self.auto_makefile_enabled = self.config.get('enable_auto_makefile', True)
+        self.makefile_managers: Dict[str, AutoMakefileManager] = {}
+        
+        # 项目结构缓存
+        self.project_structures: Dict[str, ProjectStructure] = {}
+        
+        # 性能优化：依赖解析缓存（增强：考虑编译参数）
+        # 缓存键：(文件绝对路径, 编译参数签名)
+        self._dependency_cache: Dict[Tuple[str, str], Set[str]] = {}
+        self._file_hash_cache: Dict[str, Tuple[float, str]] = {}  # (mtime, md5)
+        
+        # 头文件查找缓存
+        self._header_lookup_cache: Dict[Tuple[str, Tuple[str, ...], str], Optional[str]] = {}
+        
+        # 系统头文件路径（延迟初始化）
+        self._system_include_paths: Optional[Set[str]] = None
+        
+        # 统计信息（优化：使用 defaultdict 避免重复检查）
+        from collections import defaultdict
+        self._stats = defaultdict(int)
+        # 初始化主要计数器
+        for key in ['cache_hits', 'cache_misses', 'parse_count', 'path_normalization_count', 
+                   'header_lookups', 'system_path_hits', 'cache_evictions']:
+            self._stats[key] = 0
+    
+    def _get_system_include_paths(self) -> Set[str]:
+        """获取系统标准头文件路径（延迟初始化）"""
+        if self._system_include_paths is None:
+            system_paths = {
+                '/usr/include',
+                '/usr/local/include', 
+                '/opt/include',
+            }
+            
+            # 添加架构特定路径（一次性获取）
+            try:
+                import platform
+                import glob
+                
+                arch = platform.machine()
+                system_paths.add(f'/usr/include/{arch}-linux-gnu')
+                
+                # 批量添加 C++ 标准库路径
+                cpp_paths = glob.glob('/usr/include/c++/[0-9]*')
+                system_paths.update(cpp_paths)
+                
+                # 添加 clang 路径（如果存在）
+                clang_paths = glob.glob('/usr/lib/clang/*/include')
+                system_paths.update(clang_paths)
+                
+            except (ImportError, OSError) as e:
+                self.logger.debug(f"系统路径检测部分失败: {e}")
+            
+            # 过滤存在的路径并转为绝对路径（批量处理）
+            existing_paths = []
+            for p in system_paths:
+                try:
+                    resolved = Path(p).resolve()
+                    if resolved.exists():
+                        existing_paths.append(str(resolved))
+                except (OSError, RuntimeError):
+                    continue
+            
+            self._system_include_paths = set(existing_paths)
+            self.logger.debug(f"检测到 {len(self._system_include_paths)} 个系统头文件路径")
+        
+        return self._system_include_paths
+    
+    def _get_compile_args_signature(self, compile_args: List[str]) -> str:
+        """计算编译参数签名（仅考虑影响依赖的标志）"""
+        if not compile_args:
+            return ""
+        # 提取 -I, -D, -std, -isystem 等影响依赖的标志
+        relevant = [arg for arg in compile_args if arg.startswith(('-I', '-D', '-std=', '-isystem'))]
+        return hashlib.md5('|'.join(sorted(relevant)).encode()).hexdigest()[:16]
+    
+    def _compute_file_hash(self, file_path: str) -> Optional[Tuple[float, str]]:
+        """计算文件哈希（优化：更高效的mtime+size预检查）"""
+        try:
+            stat_result = os.stat(file_path)
+            mtime = stat_result.st_mtime
+            size = stat_result.st_size
+            
+            # 快速路径：检查 mtime + size 组合
+            cache_key = (mtime, size)
+            if file_path in self._file_hash_cache:
+                cached_mtime, cached_md5 = self._file_hash_cache[file_path]
+                cached_size = getattr(self, '_cached_file_sizes', {}).get(file_path, 0)
+                
+                if abs(cached_mtime - mtime) < 0.001 and cached_size == size:
+                    return self._file_hash_cache[file_path]
+            
+            # 延迟计算哈希（仅当真正需要时）
+            if size > 1024 * 1024:  # 1MB以上文件使用采样哈希
+                with open(file_path, 'rb') as f:
+                    # 读取文件头、中、尾各4KB进行快速哈希
+                    header = f.read(4096)
+                    if size > 8192:
+                        f.seek(size // 2)
+                        middle = f.read(4096)
+                        f.seek(-4096, 2)
+                        tail = f.read(4096)
+                        content = header + middle + tail
+                    else:
+                        content = header
+                    md5 = hashlib.md5(content).hexdigest()
+            else:
+                # 小文件直接完整哈希
+                with open(file_path, 'rb') as f:
+                    md5 = hashlib.md5(f.read()).hexdigest()
+            
+            # 缓存文件大小信息
+            if not hasattr(self, '_cached_file_sizes'):
+                self._cached_file_sizes = {}
+            self._cached_file_sizes[file_path] = size
+            
+            return (mtime, md5)
+        
+        except (OSError, IOError) as e:
+            self.logger.debug(f"计算文件哈希失败 {file_path}: {e}")
+            return None
+    
+    def _is_cache_valid(self, file_path: str, compile_args: List[str] = None) -> bool:
+        """检查缓存是否有效（增强：考虑编译参数变化）"""
+        args_sig = self._get_compile_args_signature(compile_args or [])
+        cache_key = (file_path, args_sig)
+        
+        if cache_key not in self._dependency_cache:
+            return False
+        
+        current_hash = self._compute_file_hash(file_path)
+        if current_hash is None:
+            return False
+        
+        # 更新缓存中的哈希值
+        cached = self._file_hash_cache.get(file_path)
+        if cached and cached == current_hash:
+            return True
+        
+        # 哈希变化，缓存失效
+        return False
+    
+    def clear_cache(self):
+        """清除所有缓存"""
+        self._dependency_cache.clear()
+        self._file_hash_cache.clear()
+        self._stats['cache_hits'] = 0
+        self._stats['cache_misses'] = 0
+        self.logger.info("缓存已清除")
+    
+    def get_cache_stats(self) -> Dict[str, int]:
+        """获取缓存统计信息"""
+        total = self._stats['cache_hits'] + self._stats['cache_misses']
+        hit_rate = self._stats['cache_hits'] / total if total > 0 else 0
+        return {
+            **self._stats,
+            'total_queries': total,
+            'hit_rate': hit_rate
+        }
+    
+    def ensure_project_makefile(self, project_root: str) -> str:
+        """确保项目有Makefile文件，如果没有则自动生成"""
+        if not self.auto_makefile_enabled:
+            makefile_path = os.path.join(project_root, "Makefile")
+            if not os.path.exists(makefile_path):
+                raise FileNotFoundError(f"Makefile不存在且未启用自动生成: {makefile_path}")
+            return makefile_path
+        
+        # 获取或创建Makefile管理器
+        if project_root not in self.makefile_managers:
+            makefile_config = self.config.get('makefile_config', {})
+            self.makefile_managers[project_root] = AutoMakefileManager(
+                project_root, makefile_config
+            )
+        
+        manager = self.makefile_managers[project_root]
+        makefile_path = manager.ensure_makefile_exists()
+        
+        # 缓存项目结构信息
+        self.project_structures[project_root] = manager.get_project_structure()
+        
+        self.logger.info(f"项目Makefile已确保存在: {makefile_path}")
+        return makefile_path
+    
+    def build_dependency_graph_from_project(self, project_root: str) -> nx.DiGraph:
+        """从项目自动构建依赖图"""
+        self.logger.info(f"开始为项目构建依赖图: {project_root}")
+        
+        # 确保Makefile存在
+        makefile_path = self.ensure_project_makefile(project_root)
+        
+        # 获取项目结构
+        if project_root not in self.project_structures:
+            manager = self.makefile_managers[project_root]
+            self.project_structures[project_root] = manager.get_project_structure()
+        
+        project_structure = self.project_structures[project_root]
+        
+        # 清空现有图
+        self.dependency_graph.clear()
+        self.file_to_task.clear()
+        self.task_to_file.clear()
+        
+        # 从项目结构构建任务节点
+        task_counter = 0
+        for source_path, source_file in project_structure.source_files.items():
+            task_id = f"task_{task_counter}"
+            task_counter += 1
+            
+            # 使用项目结构的编译标志（每个源文件的标志可能为空）
+            compile_flags = source_file.compile_flags or project_structure.compile_flags
+            if not compile_flags:
+                compile_flags = []  # 默认为空，编译器标志从项目结构获取
+            
+            # 构建完整的编译命令，包含编译器
+            full_compile_args = [project_structure.compiler] + compile_flags + ['-c']
+            
+            # 创建编译任务节点
+            self.dependency_graph.add_node(task_id, 
+                source_file=source_path,
+                object_file=source_file.object_file,
+                compile_flags=full_compile_args,
+                node_type="compile"
+            )
+            
+            # 建立映射关系
+            self.file_to_task[source_path] = task_id
+            self.task_to_file[task_id] = source_path
+        
+        # 添加依赖边
+        for source_path, source_file in project_structure.source_files.items():
+            current_task_id = self.file_to_task[source_path]
+            
+            # 添加源文件间的依赖
+            for dep_path in source_file.dependencies:
+                if dep_path in self.file_to_task:
+                    dep_task_id = self.file_to_task[dep_path]
+                    # 避免自循环：如果依赖的任务就是当前任务，则跳过
+                    if dep_task_id != current_task_id:
+                        self.dependency_graph.add_edge(dep_task_id, current_task_id,
+                                                     relationship="source_dependency")
+        
+        # 添加链接任务（如果需要）
+        if len(project_structure.source_files) > 1:
+            link_task_id = f"link_task"
+            self.dependency_graph.add_node(link_task_id,
+                target_file=project_structure.executable_name,
+                node_type="link",
+                link_flags=project_structure.link_flags or []
+            )
+            
+            # 所有编译任务都是链接任务的依赖
+            for task_id in self.file_to_task.values():
+                self.dependency_graph.add_edge(task_id, link_task_id,
+                                             relationship="link_dependency")
+        
+        self.logger.info(f"依赖图构建完成: {len(self.dependency_graph.nodes)} 个节点, "
+                        f"{len(self.dependency_graph.edges)} 条边")
+        
+        return self.dependency_graph
+    
+    def add_include_path(self, path: str):
+        """添加头文件搜索路径"""
+        if path not in self.include_paths:
+            self.include_paths.append(path)
+            self.logger.debug(f"Added include path: {path}")
+    
+    def parse_source_dependencies(self, source_file: str, 
+                                  compile_args: List[str] = None) -> Set[str]:
+        """解析源文件的依赖关系（增强：路径规范化 + 编译参数感知缓存）"""
+        # 规范化为绝对路径
+        source_file_abs = os.path.abspath(source_file)
+        args_sig = self._get_compile_args_signature(compile_args or [])
+        cache_key = (source_file_abs, args_sig)
+        
+        # 检查缓存
+        if self._is_cache_valid(source_file_abs, compile_args):
+            self._stats['cache_hits'] += 1
+            return self._dependency_cache[cache_key].copy()
+        
+        self._stats['cache_misses'] += 1
+        self._stats['parse_count'] += 1
+        dependencies = set()
+        
+        try:
+            # 解析编译参数中的包含路径
+            include_paths = self._parse_include_paths(compile_args or [])
+            all_include_paths = self.include_paths + include_paths
+            
+            # 递归解析所有包含的头文件
+            visited_files = set()
+            self._parse_includes_recursive(source_file_abs, all_include_paths, 
+                                         dependencies, visited_files)
+            
+            # 过滤系统头文件，保留项目内依赖（绝对路径）
+            filtered_deps = set()
+            sys_paths = self._get_system_include_paths()
+            for dep in dependencies:
+                dep_abs = os.path.abspath(dep)
+                # 检查是否为系统头文件
+                if any(dep_abs.startswith(sys_path) for sys_path in sys_paths):
+                    continue
+                filtered_deps.add(dep_abs)
+            
+            # 更新缓存
+            self._dependency_cache[cache_key] = filtered_deps.copy()
+            hash_tuple = self._compute_file_hash(source_file_abs)
+            if hash_tuple:
+                self._file_hash_cache[source_file_abs] = hash_tuple
+            
+            self.logger.debug(f"解析 {source_file} -> {len(filtered_deps)} 依赖")
+            
+        except Exception as e:
+            self.logger.error(f"解析 {source_file} 依赖时出错: {e}", exc_info=True)
+        
+        return filtered_deps
+    
+    def build_dependency_graph(self, tasks: List[CompileTask]) -> bool:
+        """构建任务依赖图（增强：路径规范化 + 详细诊断）
+        
+        Args:
+            tasks: 编译任务列表
+            
+        Returns:
+            bool: 构建是否成功
+        """
+        try:
+            self.dependency_graph.clear()
+            self.file_to_task.clear()
+            self.task_to_file.clear()
+            
+            if not tasks:
+                self.logger.warning("任务列表为空，无法构建依赖图")
+                return False
+            
+            # 第一步：添加所有任务节点并建立文件映射（使用绝对路径）
+            for task in tasks:
+                self.dependency_graph.add_node(task.task_id, task=task)
+                if task.source_file:
+                    src_abs = os.path.abspath(task.source_file)
+                    self.file_to_task[src_abs] = task.task_id
+                    self.task_to_file[task.task_id] = src_abs
+                    
+                    # 同时映射输出文件
+                    if task.output_file:
+                        out_abs = os.path.abspath(task.output_file)
+                        self.file_to_task[out_abs] = task.task_id
+            
+            self.logger.info(f"添加了 {len(tasks)} 个任务节点")
+            
+            # 第二步：解析依赖关系并添加边
+            edge_count = 0
+            unresolved_deps = defaultdict(set)  # 诊断：记录未解析的依赖
+            
+            for task in tasks:
+                edges_added, unresolved = self._build_task_dependencies_enhanced(task)
+                edge_count += edges_added
+                if unresolved:
+                    unresolved_deps[task.task_id] = unresolved
+            
+            self.logger.info(f"添加了 {edge_count} 条依赖边")
+            
+            # 诊断未解析依赖
+            if unresolved_deps:
+                total_unresolved = sum(len(deps) for deps in unresolved_deps.values())
+                self.logger.warning(f"共有 {total_unresolved} 个依赖未能解析为任务边（可能是外部头文件或生成文件）")
+                # 显示部分示例
+                for task_id, deps in list(unresolved_deps.items())[:3]:
+                    self.logger.debug(f"  任务 {task_id} 未解析依赖: {list(deps)[:5]}")
+            
+            # （可选）第四步：自动插入聚合链接任务
+            if self.config.get('auto_link_task'):
+                link_added = self._maybe_add_link_task(tasks)
+                if link_added:
+                    edge_count += link_added
+                    self.logger.info(f"自动插入链接任务，增加 {link_added} 条依赖边")
+
+            # 第五步：检查循环依赖
+            if not nx.is_directed_acyclic_graph(self.dependency_graph):
+                cycles = list(nx.simple_cycles(self.dependency_graph))
+                self.logger.error(f"检测到 {len(cycles)} 个循环依赖")
+                for i, cycle in enumerate(cycles[:5], 1):  # 只显示前5个
+                    self.logger.error(f"  循环 {i}: {' -> '.join(cycle)}")
+                
+                # 尝试自动修复（移除部分边）
+                if self.config.get('auto_fix_cycles', False):
+                    self._fix_circular_dependencies_enhanced(cycles)
+                else:
+                    return False
+            
+            self.logger.info(f"✓ 依赖图构建成功：{len(tasks)} 任务，{edge_count} 依赖")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"构建依赖图时出错: {e}", exc_info=True)
+            return False
+    
+    def _fix_circular_dependencies_enhanced(self, cycles: List[List[str]]):
+        """修复循环依赖（增强：智能选择移除边，优先保留真实依赖）
+        
+        策略：
+        1. 识别推断的生成任务边（如 gen:xxx）
+        2. 优先移除推断边
+        3. 若无推断边，移除度最小的边（影响最小）
+        """
+        fixed_count = 0
+        for cycle in cycles[:10]:  # 限制处理前10个
+            if len(cycle) < 2:
+                continue
+            
+            # 构建循环中的边列表
+            cycle_edges = [(cycle[i], cycle[(i + 1) % len(cycle)]) for i in range(len(cycle))]
+            
+            # 策略1：优先移除推断任务边（gen:, link: 等）
+            edge_to_remove = None
+            for u, v in cycle_edges:
+                if u.startswith(('gen:', 'link:')) or v.startswith(('gen:', 'link:')):
+                    edge_to_remove = (u, v)
+                    break
+            
+            # 策略2：移除涉及最低度节点的边（影响最小）
+            if not edge_to_remove:
+                min_degree = float('inf')
+                for u, v in cycle_edges:
+                    # 优化：预计算度数，避免重复调用
+                    degree_u = self.dependency_graph.in_degree(u) + self.dependency_graph.out_degree(u)
+                    degree_v = self.dependency_graph.in_degree(v) + self.dependency_graph.out_degree(v)
+                    total_degree = degree_u + degree_v
+                    
+                    if total_degree < min_degree:
+                        min_degree = total_degree
+                        edge_to_remove = (u, v)
+            
+            # 移除选定的边
+            if edge_to_remove and self.dependency_graph.has_edge(*edge_to_remove):
+                self.dependency_graph.remove_edge(*edge_to_remove)
+                fixed_count += 1
+                self.logger.info(f"移除循环边: {edge_to_remove[0]} -> {edge_to_remove[1]}")
+        
+        self.logger.info(f"修复了 {fixed_count} 个循环依赖")
+        
+        # 优化：仅在修复边数>0时才重新检查
+        if fixed_count > 0 and not nx.is_directed_acyclic_graph(self.dependency_graph):
+            remaining_cycles = list(nx.simple_cycles(self.dependency_graph))
+            if len(remaining_cycles) < len(cycles):
+                self.logger.info(f"部分修复：从 {len(cycles)} 减少到 {len(remaining_cycles)} 个循环")
+            else:
+                self.logger.warning(f"修复后仍有 {len(remaining_cycles)} 个循环，建议人工审查")
+
+    def _maybe_add_link_task(self, tasks: List[CompileTask]) -> int:
+        """在图中添加聚合链接任务（如果尚未存在 & 任务输出文件可用）
+
+        规则：
+        - 收集所有以 .o 结尾的输出文件
+        - 若数量 >= 2 且没有已有 link:* 任务，则创建 link:all 任务
+        - 所有对象文件的生成任务指向该链接任务
+        - 可配置输出文件名：config['link_output'] 默认 'app'
+
+        Returns:
+            新增的依赖边数量
+        """
+        if any(isinstance(self.dependency_graph.nodes[n].get('task'), LinkTask)
+               for n in self.dependency_graph.nodes):
+            return 0
+
+        obj_tasks = []
+        for node, data in self.dependency_graph.nodes(data=True):
+            t: CompileTask = data.get('task')
+            if not t:
+                continue
+            if t.output_file and t.output_file.endswith('.o'):
+                obj_tasks.append(t)
+
+        if len(obj_tasks) < 2:
+            return 0
+
+        output_name = self.config.get('link_output', 'app')
+        link_task = LinkTask(
+            task_id='all',
+            source_file='',
+            output_file=output_name,
+            compile_args=['-link'] + [t.output_file for t in obj_tasks if t.output_file],
+            dependencies=set(t.task_id for t in obj_tasks)
+        )
+
+        self.dependency_graph.add_node(link_task.task_id, task=link_task)
+
+        added_edges = 0
+        for t in obj_tasks:
+            if not self.dependency_graph.has_edge(t.task_id, link_task.task_id):
+                self.dependency_graph.add_edge(t.task_id, link_task.task_id)
+                added_edges += 1
+        return added_edges
+    
+    def get_topological_order(self) -> List[str]:
+        """获取任务的拓扑排序"""
+        try:
+            return list(nx.topological_sort(self.dependency_graph))
+        except nx.NetworkXError as e:
+            self.logger.error(f"Error in topological sort: {e}")
+            return []
+    
+    def get_task_dependencies(self, task_id: str) -> Set[str]:
+        """获取任务的直接依赖"""
+        if task_id in self.dependency_graph:
+            return set(self.dependency_graph.predecessors(task_id))
+        return set()
+    
+    def get_task_dependents(self, task_id: str) -> Set[str]:
+        """获取依赖此任务的任务"""
+        if task_id in self.dependency_graph:
+            return set(self.dependency_graph.successors(task_id))
+        return set()
+    
+    def get_ready_tasks(self, completed_tasks: Set[str]) -> List[str]:
+        """获取可以执行的任务（所有依赖已完成）"""
+        ready_tasks = []
+        
+        for task_id in self.dependency_graph.nodes():
+            dependencies = self.get_task_dependencies(task_id)
+            if dependencies.issubset(completed_tasks):
+                ready_tasks.append(task_id)
+        
+        return ready_tasks
+    
+    def get_critical_path(self) -> List[str]:
+        """获取关键路径（最长路径）"""
+        try:
+            # 为每个节点添加权重（假设每个任务耗时相同）
+            for node in self.dependency_graph.nodes():
+                self.dependency_graph.nodes[node]['weight'] = 1
+            
+            # 计算最长路径
+            path_lengths = nx.dag_longest_path_length(self.dependency_graph, weight='weight')
+            longest_path = nx.dag_longest_path(self.dependency_graph, weight='weight')
+            
+            self.logger.info(f"Critical path length: {path_lengths}, path: {longest_path}")
+            return longest_path
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating critical path: {e}")
+            return []
+    
+    def get_parallelism_level(self) -> int:
+        """获取最大并行度"""
+        try:
+            # 计算每个层级的任务数
+            levels = {}
+            for task_id in nx.topological_sort(self.dependency_graph):
+                # 计算任务的层级（最大依赖深度）
+                level = 0
+                for dep_id in self.get_task_dependencies(task_id):
+                    if dep_id in levels:
+                        level = max(level, levels[dep_id] + 1)
+                levels[task_id] = level
+            
+            # 统计每个层级的任务数
+            level_counts = {}
+            for task_id, level in levels.items():
+                level_counts[level] = level_counts.get(level, 0) + 1
+            
+            # 返回最大层级任务数（理论最大并行度）
+            max_parallelism = max(level_counts.values()) if level_counts else 0
+            self.logger.debug(f"Maximum parallelism level: {max_parallelism}")
+            return max_parallelism
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating parallelism level: {e}")
+            return 1
+    
+    def export_dot(self, filename: str) -> bool:
+        """导出DOT格式的依赖图"""
+        try:
+            nx.drawing.nx_pydot.write_dot(self.dependency_graph, filename)
+            self.logger.info(f"Exported dependency graph to {filename}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error exporting DOT file: {e}")
+            return False
+    
+    def get_graph_stats(self) -> Dict[str, int]:
+        """获取图统计信息"""
+        return {
+            "nodes": self.dependency_graph.number_of_nodes(),
+            "edges": self.dependency_graph.number_of_edges(),
+            "source_files": len([n for n, d in self.dependency_graph.nodes(data=True) 
+                               if d.get('node_type') == 'compile']),
+            "object_files": len([n for n, d in self.dependency_graph.nodes(data=True) 
+                               if d.get('node_type') == 'object'])
+        }
+    
+    def detect_cycles(self) -> List[List[str]]:
+        """检测循环依赖"""
+        try:
+            # 使用networkx的simple_cycles方法检测循环
+            cycles = list(nx.simple_cycles(self.dependency_graph))
+            
+            if cycles:
+                self.logger.warning(f"检测到 {len(cycles)} 个循环依赖")
+                for i, cycle in enumerate(cycles):
+                    self.logger.warning(f"循环 {i+1}: {' -> '.join(cycle)}")
+            
+            return cycles
+            
+        except Exception as e:
+            self.logger.error(f"检测循环依赖时出错: {e}")
+            return []
+    
+    def validate_dependencies(self) -> Dict[str, List[str]]:
+        """验证依赖关系的完整性"""
+        issues = {
+            "missing_files": [],
+            "circular_dependencies": [],
+            "orphaned_tasks": []
+        }
+        
+        # 检查缺失的文件
+        for node_id, node_data in self.dependency_graph.nodes(data=True):
+            if node_data.get('node_type') == 'compile':
+                source_file = node_data.get('source_file')
+                if source_file and not os.path.exists(source_file):
+                    issues["missing_files"].append({
+                        "task_id": node_id,
+                        "file": source_file
+                    })
+        
+        # 检查循环依赖
+        cycles = self.detect_cycles()
+        if cycles:
+            issues["circular_dependencies"] = cycles
+        
+        # 检查孤立任务（没有依赖也没有被依赖）
+        for node_id in self.dependency_graph.nodes():
+            in_degree = self.dependency_graph.in_degree(node_id)
+            out_degree = self.dependency_graph.out_degree(node_id)
+            if in_degree == 0 and out_degree == 0:
+                issues["orphaned_tasks"].append(node_id)
+        
+        return issues
+    
+    def get_dependency_chain(self, task_id: str, max_depth: int = 10) -> List[str]:
+        """获取任务的依赖链"""
+        chain = []
+        visited = set()
+        
+        def dfs(current_id: str, depth: int):
+            if depth > max_depth or current_id in visited:
+                return
+            
+            visited.add(current_id)
+            chain.append(current_id)
+            
+            # 添加前置依赖
+            for pred in self.dependency_graph.predecessors(current_id):
+                dfs(pred, depth + 1)
+        
+        dfs(task_id, 0)
+        return chain
+    
+    def get_dependent_chain(self, task_id: str, max_depth: int = 10) -> List[str]:
+        """获取任务的被依赖链"""
+        chain = []
+        visited = set()
+        
+        def dfs(current_id: str, depth: int):
+            if depth > max_depth or current_id in visited:
+                return
+            
+            visited.add(current_id)
+            chain.append(current_id)
+            
+            # 添加后继依赖
+            for succ in self.dependency_graph.successors(current_id):
+                dfs(succ, depth + 1)
+        
+        dfs(task_id, 0)
+        return chain
+    
+    def _build_task_dependencies_enhanced(self, task: CompileTask) -> Tuple[int, Set[str]]:
+        """构建单个任务的依赖关系（增强版：返回未解析依赖供诊断）
+        
+        Returns:
+            (添加的边数量, 未解析的依赖文件集合)
+        """
+        if not task.source_file:
+            return 0, set()
+            
+        source_file_abs = os.path.abspath(task.source_file)
+        edge_count = 0
+        unresolved = set()
+        
+        # 解析源文件的依赖（返回绝对路径集合）
+        file_dependencies = self.parse_source_dependencies(source_file_abs, task.compile_args)
+        
+        # 将文件依赖转换为任务依赖
+        for dep_file_abs in file_dependencies:
+            # 查找生成此文件的任务
+            dep_task_id = self._find_task_for_file(dep_file_abs)
+            
+            if dep_task_id and dep_task_id != task.task_id:
+                # 避免重复边
+                if not self.dependency_graph.has_edge(dep_task_id, task.task_id):
+                    self.dependency_graph.add_edge(dep_task_id, task.task_id)
+                    task.dependencies.add(dep_task_id)
+                    edge_count += 1
+                    self.logger.debug(f"添加依赖: {dep_task_id} -> {task.task_id}")
+            else:
+                # 未找到对应任务（可能是外部头文件或生成文件）
+                unresolved.add(dep_file_abs)
+        
+        return edge_count, unresolved
+    
+    def _find_task_for_file(self, file_path: str) -> Optional[str]:
+        """查找生成指定文件的任务（增强：支持绝对路径和相对路径查找）"""
+        # 规范化为绝对路径
+        file_abs = os.path.abspath(file_path)
+        
+        # 直接查找
+        if file_abs in self.file_to_task:
+            return self.file_to_task[file_abs]
+        
+        # 查找输出文件映射（遍历所有任务）
+        for task_id, task in [(node, data['task']) for node, data in self.dependency_graph.nodes(data=True)]:
+            if hasattr(task, 'output_file') and task.output_file:
+                out_abs = os.path.abspath(task.output_file)
+                if out_abs == file_abs:
+                    return task_id
+        
+        return None
+    
+    def _parse_include_paths(self, compile_args: List[str]) -> List[str]:
+        """从编译参数中解析包含路径"""
+        include_paths = []
+        i = 0
+        
+        while i < len(compile_args):
+            arg = compile_args[i]
+            
+            if arg == "-I" and i + 1 < len(compile_args):
+                include_paths.append(compile_args[i + 1])
+                i += 2
+            elif arg.startswith("-I"):
+                include_paths.append(arg[2:])
+                i += 1
+            else:
+                i += 1
+        
+        return include_paths
+    
+    def _parse_includes_recursive(self, file_path: str, include_paths: List[str],
+                                  dependencies: Set[str], visited: Set[str]):
+        """递归解析文件的包含依赖"""
+        if file_path in visited:
+            return
+        
+        visited.add(file_path)
+        
+        if not os.path.exists(file_path):
+            return
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            # 匹配 #include 指令
+            include_pattern = r'#\s*include\s*[<"]([^>"]+)[>"]'
+            includes = re.findall(include_pattern, content)
+            
+            for include_file in includes:
+                # 查找头文件的完整路径
+                full_path = self._find_header_file(include_file, include_paths, 
+                                                 os.path.dirname(file_path))
+                
+                if full_path:
+                    dependencies.add(full_path)
+                    # 递归解析头文件的依赖
+                    self._parse_includes_recursive(full_path, include_paths, 
+                                                 dependencies, visited)
+        
+        except Exception as e:
+            self.logger.warning(f"Error parsing file {file_path}: {e}")
+    
+    def _find_header_file(self, include_name: str, include_paths: List[str], 
+                          current_dir: str) -> Optional[str]:
+        """查找头文件的完整路径（优化：分层缓存 + 批量检查）"""
+        # 优化1：简化缓存键（避免大tuple）
+        paths_hash = hashlib.md5('|'.join(include_paths).encode()).hexdigest()[:8]
+        cache_key = f"{include_name}:{paths_hash}:{current_dir}"
+        
+        if cache_key in self._header_lookup_cache:
+            return self._header_lookup_cache[cache_key]
+        
+        # 优化2：预构建候选路径列表
+        candidate_paths = [
+            os.path.join(current_dir, include_name),  # 当前目录
+            *[os.path.join(p, include_name) for p in include_paths],  # -I路径
+        ]
+        
+        # 优化3：批量存在性检查
+        result = None
+        for path in candidate_paths:
+            if os.path.isfile(path):  # isfile 比 exists 更精确
+                result = os.path.abspath(path)
+                break
+        
+        # 策略4：系统路径（延迟到最后，减少系统调用）
+        if not result:
+            sys_paths = self._get_system_include_paths()
+            for sys_path in sys_paths:
+                full_path = os.path.join(sys_path, include_name)
+                if os.path.isfile(full_path):
+                    result = os.path.abspath(full_path)
+                    break
+        
+        # 优化4：缓存结果，并限制缓存大小
+        if len(self._header_lookup_cache) > 10000:  # 防止缓存过大
+            # 清除最老的一半条目（简单LRU近似）
+            items = list(self._header_lookup_cache.items())
+            self._header_lookup_cache = dict(items[len(items)//2:])
+            self._stats['cache_evictions'] = self._stats.get('cache_evictions', 0) + len(items)//2
+        
+        self._header_lookup_cache[cache_key] = result
+        
+        if not result:
+            self.logger.debug(f"未找到头文件: {include_name}")
+        
+        return result
+
+
+class MakefileParser:
+    """Makefile依赖解析器"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
+    
+    def parse_makefile_dependencies(self, makefile_path: str) -> Dict[str, List[str]]:
+        """解析Makefile中的依赖关系"""
+        dependencies = {}
+        
+        try:
+            with open(makefile_path, 'r') as f:
+                content = f.read()
+            
+            # 解析依赖规则 (target: dependencies)
+            rule_pattern = r'^([^:#\n]+):\s*([^#\n]*)'
+            
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                match = re.match(rule_pattern, line)
+                if match:
+                    target = match.group(1).strip()
+                    deps = [dep.strip() for dep in match.group(2).split() if dep.strip()]
+                    dependencies[target] = deps
+            
+            self.logger.info(f"Parsed {len(dependencies)} rules from {makefile_path}")
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing Makefile {makefile_path}: {e}")
+        
+        return dependencies
+    
+    def extract_compile_tasks(self, makefile_path: str, target: str = "all") -> List[CompileTask]:
+        """从Makefile提取编译任务
+        - 路径均按 Makefile 所在目录解析
+        - 解析 INCLUDES/CXXFLAGS 中的 -I 与常用编译标志
+        """
+        tasks: List[CompileTask] = []
+        try:
+            base_dir = os.path.dirname(os.path.abspath(makefile_path))
+            # 读取 Makefile 内容以提取包含与编译标志
+            include_flags: List[str] = []
+            extra_flags: List[str] = []
+            compiler_cxx: Optional[str] = None
+            compiler_c: Optional[str] = None
+            try:
+                with open(makefile_path, 'r', encoding='utf-8', errors='ignore') as mf:
+                    content = mf.read()
+                # 收集 -I 标志
+                for tok in re.findall(r'(?:^|\s)(-I[^\s]+)', content):
+                    include_flags.append(tok.strip())
+                # 收集 CXXFLAGS/CFLAGS 的标志（简化提取）
+                for m in re.finditer(r'^\s*(?:CXXFLAGS|CFLAGS)\s*[:+]?=\s*(.*)$', content, flags=re.MULTILINE):
+                    # 分割为 token
+                    extra_flags.extend([t for t in m.group(1).strip().split() if t])
+                # 提取编译器设置
+                m_cxx = re.search(r'^\s*CXX\s*[:+]?=\s*(.+)$', content, flags=re.MULTILINE)
+                if m_cxx:
+                    compiler_cxx = m_cxx.group(1).strip().split()[0]
+                m_cc = re.search(r'^\s*CC\s*[:+]?=\s*(.+)$', content, flags=re.MULTILINE)
+                if m_cc:
+                    compiler_c = m_cc.group(1).strip().split()[0]
+            except Exception as e:
+                self.logger.debug(f"Failed parsing flags from Makefile: {e}")
+
+            dependencies = self.parse_makefile_dependencies(makefile_path)
+
+            for target_file, _dep_files in dependencies.items():
+                target_file = target_file.strip()
+                if not target_file.endswith('.o'):
+                    continue
+
+                # 解析目标与源的绝对路径（相对于 Makefile 目录）
+                target_abs = target_file if os.path.isabs(target_file) else os.path.normpath(os.path.join(base_dir, target_file))
+                # 尝试 .c 与 .cpp
+                source_abs_c = os.path.normpath(os.path.join(base_dir, target_file[:-2] + '.c'))
+                source_abs_cpp = os.path.normpath(os.path.join(base_dir, target_file[:-2] + '.cpp'))
+                if os.path.exists(source_abs_c):
+                    source_abs = source_abs_c
+                elif os.path.exists(source_abs_cpp):
+                    source_abs = source_abs_cpp
+                else:
+                    # 无对应源文件，跳过
+                    continue
+
+                # 构造编译参数：附带解析出的 -I 与编译标志
+                compile_args: List[str] = []
+                # 选择编译器：优先 CXX/CC，其次按后缀选择
+                if source_abs.endswith(('.cpp', '.cxx', '.cc')):
+                    compiler = compiler_cxx or 'g++'
+                else:
+                    compiler = compiler_c or 'gcc'
+                compile_args.append(compiler)
+                compile_args.extend(extra_flags)
+                # 过滤未展开变量形式的 -I$(VAR)
+                cleaned_includes = [f for f in include_flags if '$(' not in f]
+                compile_args.extend(cleaned_includes)
+                compile_args.extend(["-c", source_abs, "-o", target_abs])
+
+                task = CompileTask(
+                    source_file=source_abs,
+                    output_file=target_abs,
+                    compile_args=compile_args,
+                )
+                tasks.append(task)
+
+            self.logger.info(f"Extracted {len(tasks)} compile tasks")
+        except Exception as e:
+            self.logger.error(f"Error extracting tasks from Makefile: {e}")
+        return tasks

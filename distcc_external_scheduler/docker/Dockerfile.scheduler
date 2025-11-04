@@ -1,0 +1,30 @@
+# 调度器Dockerfile
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y \
+    gcc g++ make \
+    curl wget \
+    distcc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 先复制 requirements.txt
+COPY requirements.txt /app/requirements.txt
+
+# 安装Python依赖
+RUN pip install -r /app/requirements.txt
+
+# 复制调度器代码
+COPY core /app/core
+COPY scheduler_main.py /app/
+COPY config /app/config
+
+# 创建必要的目录
+RUN mkdir -p /app/.dag_cache /app/logs /app/data
+
+# 暴露端口
+EXPOSE 8080 8081
+
+# 启动调度器
+CMD ["python", "scheduler_main.py"]

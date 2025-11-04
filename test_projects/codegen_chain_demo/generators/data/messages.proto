@@ -1,0 +1,3 @@
+message Person { int id; string name; }
+message Task   { int id; string title; }message Config { int version; string name; }
+message Event  { int timestamp; string type; }
