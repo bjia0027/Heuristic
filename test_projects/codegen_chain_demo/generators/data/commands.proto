@@ -1,0 +1,9 @@
+message CommandsData {
+  int32 id = 1;
+  string name = 2;
+}
+
+message CommandsResponse {
+  int32 code = 1;
+  string text = 2;
+}

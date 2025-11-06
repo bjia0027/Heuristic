@@ -1,0 +1,9 @@
+message EventsData {
+  int32 id = 1;
+  string name = 2;
+}
+
+message EventsResponse {
+  int32 code = 1;
+  string text = 2;
+}

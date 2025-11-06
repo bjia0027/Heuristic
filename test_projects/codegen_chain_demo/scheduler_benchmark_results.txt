@@ -1,0 +1,93 @@
+========================================
+Distcc Scheduler Algorithm Benchmark
+Date: 2025年 11月 05日 星期三 01:06:38 CST
+Project: codegen_chain_demo (161 .cpp files)
+Cluster: 10 Docker nodes (48 total slots)
+========================================
+
+========================================
+Testing DISTCC_SCHEDULER=default
+========================================
+Configuring CMake...
+Building with default scheduler (detailed logs enabled)...
+Start time: 1762275999.038637495
+End time: 1762276040.321448542
+Elapsed time: 41.280837749s
+Build exit code: 0
+
+Scheduler statistics:
+  Total scheduler log lines: 0
+0
+Task distribution:
+  localhost:3641 -> 23 tasks
+  localhost:3642 -> 24 tasks
+  localhost:3643 -> 24 tasks
+  localhost:3644 -> 26 tasks
+  localhost:3645 -> 23 tasks
+  localhost:3646 -> 21 tasks
+  localhost:3647 -> 20 tasks
+  localhost:3648 -> 20 tasks
+  localhost:3649 -> 18 tasks
+  localhost:3650 -> 18 tasks
+  Total distributed: 217 tasks
+  Local compilation tasks: 218
+
+========================================
+Testing DISTCC_SCHEDULER=random
+========================================
+Configuring CMake...
+Building with random scheduler (detailed logs enabled)...
+Start time: 1762276043.133530372
+End time: 1762276083.930206023
+Elapsed time: 40.794752750s
+Build exit code: 0
+
+Scheduler statistics:
+  Total scheduler log lines: 0
+0
+Task distribution:
+  localhost:3641 -> 23 tasks
+  localhost:3642 -> 25 tasks
+  localhost:3643 -> 26 tasks
+  localhost:3644 -> 26 tasks
+  localhost:3645 -> 21 tasks
+  localhost:3646 -> 20 tasks
+  localhost:3647 -> 19 tasks
+  localhost:3648 -> 20 tasks
+  localhost:3649 -> 19 tasks
+  localhost:3650 -> 18 tasks
+  Total distributed: 217 tasks
+  Local compilation tasks: 218
+
+========================================
+Testing DISTCC_SCHEDULER=rr
+========================================
+Configuring CMake...
+Building with rr scheduler (detailed logs enabled)...
+Start time: 1762276086.760614420
+End time: 1762276127.489846756
+Elapsed time: 40.727065173s
+Build exit code: 0
+
+Scheduler statistics:
+  Total scheduler log lines: 0
+0
+Task distribution:
+  localhost:3641 -> 24 tasks
+  localhost:3642 -> 22 tasks
+  localhost:3643 -> 25 tasks
+  localhost:3644 -> 24 tasks
+  localhost:3645 -> 23 tasks
+  localhost:3646 -> 22 tasks
+  localhost:3647 -> 22 tasks
+  localhost:3648 -> 19 tasks
+  localhost:3649 -> 19 tasks
+  localhost:3650 -> 17 tasks
+  Total distributed: 217 tasks
+  Local compilation tasks: 218
+
+========================================
+Benchmark completed!
+Results saved to: /home/jia/桌面/distcc-3.4/test_projects/codegen_chain_demo/scheduler_benchmark_results.txt
+Detailed logs: /tmp/distcc_*_build.log
+========================================

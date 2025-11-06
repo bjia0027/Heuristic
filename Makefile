@@ -22,8 +22,8 @@ POPT_CFLAGS = -Wno-unused -Wno-unused-parameter
 POPT_INCLUDES = 
 
 LDFLAGS = 
-CC = distcc gcc
-CPP = distcc gcc -E
+CC = gcc
+CPP = gcc -E
 # We add a few cppflags.  -Isrc is so that config.h can be found in the build
 # directory.  It is before I"$(srcdir)/src" to reflect VPATH semantics.
 CPPFLAGS =  -DMINILZO_HAVE_CONFIG_H -DHAVE_CONFIG_H -D_GNU_SOURCE ${DIR_DEFS} \
@@ -259,7 +259,7 @@ distcc_obj = src/backoff.o						\
 	src/ssh.o src/state.o src/strip.o				\
 	src/timefile.o src/traceenv.o					\
 	src/include_server_if.o						\
-	src/where.o							\
+	src/where.o src/scheduler.o src/scheduler_ipc.o			\
 							\
 							\
 	src/emaillog.o							\
@@ -504,10 +504,10 @@ pump: pump.in config.status
 $(popt_OBJS): CFLAGS += $(POPT_CFLAGS)
 
 distcc: $(distcc_obj)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(distcc_obj) $(LIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -rdynamic -o $@ $(distcc_obj) $(LIBS)
 
 distccd: $(distccd_obj)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(distccd_obj) $(LIBS)	
+	$(CC) $(CFLAGS) $(LDFLAGS) -rdynamic -o $@ $(distccd_obj) $(LIBS)	
 
 distccmon-text: $(mon_obj) src/mon-text.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(mon_obj) src/mon-text.o $(LIBS)

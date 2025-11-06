@@ -1,0 +1,9 @@
+# Distcc 异构主机配置（pump 模式，总16槽）
+# 高性能节点(8核) - 6槽
+localhost:3641/6,cpp,lzo
+# 中等性能节点(4核) - 6槽分两台
+localhost:3645/3,cpp,lzo
+localhost:3646/3,cpp,lzo
+# 低性能节点(2核) - 4槽分两台
+localhost:3649/2,cpp,lzo
+localhost:3650/2,cpp,lzo

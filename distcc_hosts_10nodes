@@ -14,3 +14,4 @@ localhost:3648/4
 # 低性能节点组 (2核)
 localhost:3649/2
 localhost:3650/2
+localhost:3650/2

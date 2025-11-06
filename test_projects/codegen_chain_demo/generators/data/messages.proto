@@ -1,3 +1,9 @@
-message Person { int id; string name; }
-message Task   { int id; string title; }message Config { int version; string name; }
-message Event  { int timestamp; string type; }
+message MessagesData {
+  int32 id = 1;
+  string name = 2;
+}
+
+message MessagesResponse {
+  int32 code = 1;
+  string text = 2;
+}

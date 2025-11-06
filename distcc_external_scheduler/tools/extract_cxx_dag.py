@@ -734,6 +734,47 @@ def extract_real_dag(project_root: str, compile_db_path: str) -> Tuple[nx.DiGrap
     return extractor.extract_from_compile_commands(compile_db_path)
 
 
+def extract_lightweight_dag(project_root: str, compile_db_path: str,
+                            add_link_barrier: bool = True) -> Tuple[nx.DiGraph, Dict[str, CompileTask]]:
+    """提取轻量级DAG（仅关键屏障），跳过.d扫描与头文件解析。
+
+    目标：
+    - 极低开销地构建一个小而关键的DAG：所有编译任务 + 可选聚合链接屏障
+    - 不解析头文件依赖，不引入跨编译单元的边
+    - 典型收益：仍能指导“并行编译 → 链接屏障”的整体时序，避免全局依赖提取开销
+
+    Args:
+        project_root: 项目根目录
+        compile_db_path: compile_commands.json 路径
+        add_link_barrier: 是否添加聚合链接任务（link:all）
+
+    Returns:
+        (dag, tasks) 轻量依赖图与任务字典
+    """
+    extractor = RealDAGExtractor(project_root)
+
+    # 1) 仅加载编译单元（不做 .d 解析）
+    compile_units = extractor._load_compilation_database(compile_db_path)
+
+    # 2) 创建 CompileTask 集合
+    tasks = extractor._create_compile_tasks(compile_units)
+
+    # 3) 构建仅包含任务节点的DAG
+    dag = nx.DiGraph()
+    for task_id in tasks.keys():
+        dag.add_node(task_id)
+
+    # 4) 可选：添加链接聚合屏障（带边数削减策略，避免边爆炸）
+    if add_link_barrier:
+        try:
+            extractor._add_link_task(dag, tasks)
+        except Exception:
+            # 链接屏障添加失败不应阻断整体流程
+            pass
+
+    return dag, tasks
+
+
 if __name__ == "__main__":
     # 测试用例
     import sys

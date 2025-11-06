@@ -397,5 +397,55 @@ distcc_external_scheduler/
 
 ---
 
+## 🆕 最新功能: Distcc 调度算法插件
+
+### 📖 插件相关文档
+
+- **[../README_SCHEDULER_PLUGIN.md](../README_SCHEDULER_PLUGIN.md)** - 🎯 主要文档
+  - 完整的插件安装、使用、开发指南
+  - Random/RR/HEFT 算法详解和性能对比
+  - 故障排除和最佳实践
+
+- **[../distcc_scheduler_plugin/快速参考指南.md](../distcc_scheduler_plugin/快速参考指南.md)** - ⚡ 速查表
+  - 30秒上手命令
+  - 算法对比表格  
+  - 常用命令和故障排查速查
+
+### 🛠️ 插件工具脚本
+
+- **[../scripts/distcc_with_algo.sh](../scripts/distcc_with_algo.sh)** - 主要包装脚本
+  ```bash
+  ../scripts/distcc_with_algo.sh --algo heft --debug -- make -j8
+  ```
+
+- **[../scripts/快速验证测试.sh](../scripts/快速验证测试.sh)** - 插件功能验证
+  ```bash
+  ../scripts/快速验证测试.sh
+  ```
+
+### 🚀 插件快速开始
+
+```bash
+# 1. 编译插件 (30秒)
+cd ../distcc_scheduler_plugin && make
+
+# 2. 快速验证 (1分钟)
+cd ../scripts && ./快速验证测试.sh
+
+# 3. 在 codegen_linking_demo 中使用插件进行真实分布式编译 (2-5分钟)
+cd ../test_projects/codegen_linking_demo
+../../scripts/distcc_with_algo.sh --algo heft --debug -- python3 dag_phase_scheduler.py --algo native
+```
+
+### 🎯 插件特色
+
+✅ **零侵入性** - 完全不修改 distcc 源码，通过 LD_PRELOAD 劫持  
+✅ **即插即用** - 通过环境变量控制，随时启用/禁用  
+✅ **多种算法** - 支持 Random、Round-Robin、HEFT 调度策略  
+✅ **intelligent回退** - 任何错误都自动回退到 distcc 原生算法  
+✅ **生产可用** - 经过200文件项目真实验证
+
+---
+
 **祝您使用愉快！** 🎉
 

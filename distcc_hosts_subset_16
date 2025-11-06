@@ -1,0 +1,6 @@
+# Distcc主机配置文件 - 子集 (总槽位=16)
+# 仅使用中等性能节点组 (每台4槽)
+localhost:3645/4
+localhost:3646/4
+localhost:3647/4
+localhost:3648/4

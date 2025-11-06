@@ -73,14 +73,17 @@ class ModeResult:
 
 class PerformanceBenchmark:
     def __init__(self, project_root: Optional[str] = None, compile_db_path: Optional[str] = None,
-                 selected_task_ids: Optional[set] = None):
+                 selected_task_ids: Optional[set] = None,
+                 real_mode: Optional[str] = 'full'):
         self.project_root = project_root
         self.compile_db_path = compile_db_path
         # 可选：限制真实DAG到给定任务集合（task_id集合），用于公平对比
         self.selected_task_ids = selected_task_ids
+        # real 提取模式：'full' 或 'lightweight'；None 表示禁用
+        self.real_mode = real_mode or 'full'
 
     def run(self, tasks: List[CompileTask], nodes: List[ServerNode],
-            enable_real: bool = True, enable_heuristic: bool = True,
+        enable_real: bool = True, enable_heuristic: bool = True,
             output_dir: Optional[str] = None) -> Dict[str, Any]:
         """运行对比基准
 
@@ -263,18 +266,24 @@ class PerformanceBenchmark:
         if not (self.project_root and self.compile_db_path and os.path.exists(self.compile_db_path)):
             return ModeResult(mode='real', success=False, notes='missing compile_commands.json')
         
-        # 直接使用真实DAG提取工具
+        # 直接使用真实DAG提取工具（支持轻量模式）
         try:
-            from ..tools.extract_cxx_dag import extract_real_dag
-        except (ImportError, ValueError):
-            try:
-                from tools.extract_cxx_dag import extract_real_dag
-            except ImportError:
-                return ModeResult(mode='real', success=False, notes='extract_cxx_dag not available')
+            if self.real_mode == 'lightweight':
+                try:
+                    from ..tools.extract_cxx_dag import extract_lightweight_dag as _extract
+                except (ImportError, ValueError):
+                    from tools.extract_cxx_dag import extract_lightweight_dag as _extract
+            else:
+                try:
+                    from ..tools.extract_cxx_dag import extract_real_dag as _extract
+                except (ImportError, ValueError):
+                    from tools.extract_cxx_dag import extract_real_dag as _extract
+        except ImportError:
+            return ModeResult(mode='real', success=False, notes='extractor not available')
         
         try:
-            # 提取真实DAG和任务字典
-            dag, tasks_dict = extract_real_dag(self.project_root, self.compile_db_path)
+            # 提取DAG和任务字典（按模式）
+            dag, tasks_dict = _extract(self.project_root, self.compile_db_path)
             # 若设置了任务子集，则裁剪DAG与任务字典，保证与输入任务集合一致可比
             if self.selected_task_ids:
                 # 保留 link: 开头的聚合任务（若存在）
@@ -346,8 +355,8 @@ class PerformanceBenchmark:
 
 
 def quick_benchmark(tasks: List[CompileTask], nodes: List[ServerNode], project_root: str = None, compile_db_path: str = None,
-                    output_dir: str = None) -> Dict[str, Any]:
-    bm = PerformanceBenchmark(project_root, compile_db_path)
+                    output_dir: str = None, real_mode: Optional[str] = 'full') -> Dict[str, Any]:
+    bm = PerformanceBenchmark(project_root, compile_db_path, real_mode=real_mode)
     return bm.run(tasks, nodes, output_dir=output_dir)
 
 

@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/data4">
+    <file>icon4.png</file>
+    <file>config4.json</file>
+  </qresource>
+</RCC>

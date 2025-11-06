@@ -1,0 +1,5 @@
+# Distcc 主机配置（pump 模式，子集16槽）
+localhost:3645/4,cpp,lzo
+localhost:3646/4,cpp,lzo
+localhost:3647/4,cpp,lzo
+localhost:3648/4,cpp,lzo

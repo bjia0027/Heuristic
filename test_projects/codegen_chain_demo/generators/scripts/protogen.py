@@ -34,30 +34,33 @@ def parse_messages(path):
     return messages
 
 def gen_h(messages, out_h):
+    import os
     with open(out_h,'w',encoding='utf-8') as f:
-        f.write('// Auto-generated messages.pb.h\n#pragma once\n#include <string>\n\n')
+        f.write(f'// Auto-generated {os.path.basename(out_h)}\n#pragma once\n#include <string>\n\n')
         for name, fields in messages:
             f.write(f'struct {name} {{\n')
             for t,n in fields:
-                cpp_t = 'int' if t=='int' else 'std::string'
+                cpp_t = 'int' if t.startswith('int') else 'std::string'
                 f.write(f'  {cpp_t} {n};\n')
             f.write('  std::string Serialize() const;\n')
             f.write('  void Parse(const std::string&);\n')
             f.write('};\n\n')
 
-def gen_cc(messages, out_cc):
+def gen_cc(messages, out_cc, header_name):
+    import os
     with open(out_cc,'w',encoding='utf-8') as f:
-        f.write('// Auto-generated messages.pb.cc\n#include "messages.pb.h"\n\n')
+        f.write(f'// Auto-generated {os.path.basename(out_cc)}\n#include "{header_name}"\n\n')
         for name, fields in messages:
             f.write(f'std::string {name}::Serialize() const {{ return "{name}"; }}\n')
             f.write(f'void {name}::Parse(const std::string&) {{ /*noop*/ }}\n\n')
 
 def main(inp, out_h, out_cc):
+    import os
     messages = parse_messages(inp)
     if not messages:
         messages=[('Person',[('int','id'),('string','name')])]
     gen_h(messages,out_h)
-    gen_cc(messages,out_cc)
+    gen_cc(messages,out_cc, os.path.basename(out_h))
 
 if __name__=='__main__':
     if len(sys.argv)!=4:

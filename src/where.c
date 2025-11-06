@@ -56,26 +56,21 @@
  * build stuff?
  */
 
-#include <config.h>
-
-#include <stdio.h>
+#include "config.h"
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <fcntl.h>
 #include <errno.h>
-#include <time.h>
-
-#include <sys/stat.h>
-#include <sys/file.h>
+#include <stdio.h>
 
 #include "distcc.h"
 #include "trace.h"
-#include "util.h"
+#include "rpc.h"
+#include "exitcode.h"
 #include "hosts.h"
 #include "lock.h"
 #include "where.h"
-#include "exitcode.h"
+#include "util.h"
+#include "scheduler.h"
 
 
 static int dcc_lock_one(struct dcc_hostdef *hostlist,
@@ -171,8 +166,44 @@ static int dcc_lock_one(struct dcc_hostdef *hostlist,
     struct dcc_hostdef *h;
     int i_cpu;
     int ret;
+    struct dcc_hostdef *preferred_host = NULL;
+    
+    /* Initialize scheduler on first use */
+    static int scheduler_initialized = 0;
+    if (!scheduler_initialized) {
+        dcc_scheduler_init();
+        scheduler_initialized = 1;
+    }
 
     while (1) {
+        /* Use scheduler to pick a preferred host */
+        preferred_host = dcc_scheduler_select_host(hostlist);
+        
+        if (preferred_host) {
+            /* Scheduler picked a host - try it first */
+            rs_trace("scheduler: trying preferred host %s", preferred_host->hostname);
+            
+            for (i_cpu = 0; i_cpu < preferred_host->n_slots; i_cpu++) {
+                ret = dcc_lock_host("cpu", preferred_host, i_cpu, 0, cpu_lock_fd);
+                
+                if (ret == 0) {
+                    *buildhost = preferred_host;
+                    dcc_note_state_slot(i_cpu, strcmp(preferred_host->hostname, "localhost") == 0 ? DCC_LOCAL : DCC_REMOTE);
+                    rs_trace("scheduler: locked slot %d on preferred host %s", i_cpu, preferred_host->hostname);
+                    return 0;
+                } else if (ret == EXIT_BUSY) {
+                    continue;
+                } else {
+                    rs_log_error("failed to lock");
+                    return ret;
+                }
+            }
+            
+            /* Preferred host is busy, fall through to try all hosts */
+            rs_trace("scheduler: preferred host %s is busy, trying all hosts", preferred_host->hostname);
+        }
+        
+        /* Original algorithm: try all hosts in order */
         for (i_cpu = 0; i_cpu < 10000; i_cpu++) {
             char i_cpu_is_usable = 0;
 

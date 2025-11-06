@@ -24,7 +24,10 @@ def parse_ops(path):
 
 def gen_header(ops, out_h):
     with open(out_h, 'w', encoding='utf-8') as f:
-        f.write('// Auto-generated ops_gen.h\n#pragma once\n\n')
+        # Extract base name from output path for header guard
+        import os
+        base_name = os.path.basename(out_h).replace('.', '_').upper()
+        f.write(f'// Auto-generated {os.path.basename(out_h)}\n#pragma once\n\n')
         f.write('enum class OpKind {\n')
         for i, op in enumerate(ops):
             comma = ',' if i < len(ops)-1 else ''
@@ -32,10 +35,11 @@ def gen_header(ops, out_h):
         f.write('};\n\n')
         f.write('int eval(OpKind op, int a, int b);\n')
 
-def gen_source(ops, out_cpp):
+def gen_source(ops, out_cpp, header_name):
     with open(out_cpp, 'w', encoding='utf-8') as f:
-        f.write('// Auto-generated ops_gen.cpp\n')
-        f.write('#include "ops_gen.h"\n')
+        import os
+        f.write(f'// Auto-generated {os.path.basename(out_cpp)}\n')
+        f.write(f'#include "{header_name}"\n')
         f.write('int eval(OpKind op, int a, int b) {\n')
         f.write('  switch(op){\n')
         for op in ops:
@@ -62,11 +66,13 @@ def gen_source(ops, out_cpp):
         f.write('  }\n  return 0;\n}\n')
 
 def main(inp, out_h, out_cpp):
+    import os
     ops = parse_ops(inp)
     if not ops:
         ops = ['ADD','SUB','MUL','DIV']
     gen_header(ops, out_h)
-    gen_source(ops, out_cpp)
+    # Pass just the basename of the header file
+    gen_source(ops, out_cpp, os.path.basename(out_h))
 
 if __name__ == '__main__':
     if len(sys.argv) != 4:

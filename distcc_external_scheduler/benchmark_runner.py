@@ -74,6 +74,8 @@ def main():
     parser.add_argument('--export-dag', action='store_true', help='导出推断或真实DAG可视化')
     parser.add_argument('--formats', nargs='*', default=['dot','stats','png'], help='导出格式')
     parser.add_argument('--no-real', action='store_true', help='禁用 real DAG 基准')
+    parser.add_argument('--real-mode', choices=['full', 'lightweight'], default='lightweight',
+                        help='real 模式提取策略：full=全量真实依赖; lightweight=仅关键屏障(推荐)')
     parser.add_argument('--no-heuristic', action='store_true', help='禁用 heuristic 基准')
     parser.add_argument('--log-level', default='INFO')
     args = parser.parse_args()
@@ -106,7 +108,8 @@ def main():
         nodes,
         project_root=project_root,
         compile_db_path=os.path.abspath(args.compile_db) if args.compile_db else None,
-        output_dir=args.output
+        output_dir=args.output,
+        real_mode=(None if args.no_real else args.real_mode)
     )
     print("基准完成 ->", os.path.join(args.output, 'benchmark_report.json'))
 

@@ -1,0 +1,11 @@
+主机文件: /home/jia/桌面/distcc-3.4/distcc_hosts_10nodes_clean
+并行度: -j52
+/home/jia/桌面/distcc-3.4/test_projects/llvm-project/build/lib/Transforms/InstCombine/CMakeFiles/install-LLVMInstCombine: CUSTOM_COMMAND
+/home/jia/桌面/distcc-3.4/test_projects/llvm-project/build/lib/Transforms/Scalar/CMakeFiles/install-LLVMScalarOpts: CUSTOM_COMMAND
+LLVMInstCombine: phony
+LLVMScalarOpts: phony
+install-LLVMInstCombine: phony
+install-LLVMScalarOpts: phony
+===== 算法: rr =====
+-- 运行 rr 第1轮 --
+清理 LLVMScalarOpts/LLVMInstCombine 目标...

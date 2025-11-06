@@ -1,0 +1,63 @@
+scheduler_name: "benchmark_scheduler"
+listen_host: "127.0.0.1"
+listen_port: 0
+default_algorithm: "dag_heuristic"
+max_concurrent_tasks: 100
+monitor_interval: 5.0
+heartbeat_timeout: 30.0
+distcc_executable: "/home/jia/桌面/distcc-3.4/distcc"
+default_compiler: "x86_64-linux-gnu-g++"
+log_level: "INFO"
+log_file: "/home/jia/桌面/distcc-3.4/test_projects/codegen_linking_demo/benchmark_distribution_results/scheduler.log"
+enable_performance_logging: true
+servers:
+  - id: "node_3641"
+    hostname: "localhost"
+    port: 3641
+    max_slots: 8
+    connection_mode: "tcp"
+  - id: "node_3642"
+    hostname: "localhost"
+    port: 3642
+    max_slots: 8
+    connection_mode: "tcp"
+  - id: "node_3643"
+    hostname: "localhost"
+    port: 3643
+    max_slots: 8
+    connection_mode: "tcp"
+  - id: "node_3644"
+    hostname: "localhost"
+    port: 3644
+    max_slots: 8
+    connection_mode: "tcp"
+  - id: "node_3645"
+    hostname: "localhost"
+    port: 3645
+    max_slots: 4
+    connection_mode: "tcp"
+  - id: "node_3646"
+    hostname: "localhost"
+    port: 3646
+    max_slots: 4
+    connection_mode: "tcp"
+  - id: "node_3647"
+    hostname: "localhost"
+    port: 3647
+    max_slots: 4
+    connection_mode: "tcp"
+  - id: "node_3648"
+    hostname: "localhost"
+    port: 3648
+    max_slots: 4
+    connection_mode: "tcp"
+  - id: "node_3649"
+    hostname: "localhost"
+    port: 3649
+    max_slots: 2
+    connection_mode: "tcp"
+  - id: "node_3650"
+    hostname: "localhost"
+    port: 3650
+    max_slots: 2
+    connection_mode: "tcp"

@@ -1,0 +1,16 @@
+# Distcc主机配置文件 - 10节点集群（去重版）
+# 高性能节点组 (8槽)
+localhost:3641/8
+localhost:3642/8
+localhost:3643/8
+localhost:3644/8
+
+# 中等性能节点组 (4槽)
+localhost:3645/4
+localhost:3646/4
+localhost:3647/4
+localhost:3648/4
+
+# 低性能节点组 (2槽)
+localhost:3649/2
+localhost:3650/2
